@@ -1,16 +1,18 @@
 # 生成规则（uni-app 端）
 
-三种输入（**已有前端 API / 建表 SQL / Java 实体**）到 uni-app 页面代码的映射规则。生成时逐字段应用。
+**已有前端 API 类**到 uni-app 页面代码的映射规则。生成时逐字段应用。
+
+服务层 API 文件（实体接口、formatter、url、Api 类、`lib/main.ts` 导出）由 **generating-service-api** 技能根据实体 / Controller 生成更新；本技能只**读取**该文件，并以它为页面生成的唯一事实来源。
 
 ## 目录
 
 1. [应用结构](#应用结构)
-2. [输入来源解析](#输入来源解析)
+2. [API 文件解析](#api-文件解析)
 3. [字段过滤](#字段过滤)
-4. [类型映射](#类型映射)
-5. [字典字段识别](#字典字段识别)
-6. [外键字段识别](#外键字段识别)
-7. [文件字段识别](#文件字段识别)
+4. [表单控件推断](#表单控件推断)
+5. [字典字段](#字典字段)
+6. [外键字段](#外键字段)
+7. [文件字段](#文件字段)
 8. [校验规则推断](#校验规则推断)
 9. [查询条件推断](#查询条件推断)
 10. [卡片生成（列表行）](#卡片生成列表行)
@@ -43,9 +45,7 @@
 
 生成前必须在目标应用中找一个现有业务模块核对以上路径与命名，**不要凭记忆拼写**。
 
-## 输入来源解析
-
-### 已有前端 API（首选）
+## API 文件解析
 
 该文件是**唯一事实来源**，不做额外推断：
 
@@ -53,18 +53,10 @@
 - `formatterDics` → 字典字段（dicCode 为真实值）
 - `formatterAEntitys` → 外键字段及关联表
 - `xxxFileFieldMap`（如有）→ 文件字段
+- Api 类自定义方法（`cancel`/`copy`/`checkXxx` 等）→ 页面按钮与操作的绑定依据
 - TS 类型即最终类型，无需类型映射
 - 实体 `extends SysFlowForm` 或含 `flowStatus` 字段 → 工作流审批模块
 - 无 NOT NULL 信息：必填按保守策略（见校验规则推断），收尾提醒确认
-
-### 建表 SQL / Java 实体
-
-解析规则与 web 端技能 `generating-crud-frontend` 相同：
-
-- SQL：逐字段解析名称、类型、长度、NOT NULL、默认值、注释；字段名 snake_case → 驼峰
-- Java：类名即实体名；只解析类自身声明的字段（忽略基类字段、serialVersionUID、static）；中文名优先级 `@Schema(description)` > `@ApiModelProperty` > 注释 > 字段名语义
-- 工作流特征：SQL 含 `flow_status`/`flow_instance_id`；Java `extends SysFlowForm`
-- 服务层需已有对应导出（实体/Url/Formatter）；若缺失，提示用户先用 `generating-service-api` 技能生成 API 层，本技能不代生成服务层
 
 ## 字段过滤
 
@@ -74,47 +66,46 @@
 
 其中 `createTime`、`createRealName` 可作卡片字段、筛选条件与排序字段。
 
-## 类型映射
+## 表单控件推断
 
-SQL / Java 类型 → TS 类型与 tmui 表单控件：
+TS 类型来自实体接口，表单控件按类型与字段语义推断：
 
-| 类型（SQL / Java） | TS 类型 | 表单控件 |
-|--------------------|---------|----------|
-| varchar / char / String | string | `tm-input` |
-| text / longtext / 长描述语义 | string | `tm-input type="textarea" :auto-height="true"` |
-| int / bigint / decimal / Integer / Long / BigDecimal | number | `tm-input type="number"` |
-| tinyint(1) / boolean / Boolean | boolean | `tm-switch` |
-| tinyint（非1位）/ 状态类 / 枚举 | string（走字典） | `tm-radio-group`（选项少）/ 字典 picker（选项多） |
-| date / LocalDate | string | `tm-time-picker`（showDetail 只开 year/month/day）+ `GyTmPick`，format="YYYY-MM-DD" |
-| datetime / timestamp / Date / LocalDateTime | string | `tm-time-picker`（全精度）+ `GyTmPick`，format="YYYY-MM-DD HH:mm:ss" |
-| 以 `_id`/`Id` 结尾的关联字段 | string | 外键控件（见外键字段识别） |
+| 字段特征 | 表单控件 |
+|----------|----------|
+| string 普通文本 | `tm-input` |
+| string 长描述/备注语义 | `tm-input type="textarea" :auto-height="true"` |
+| string 日期语义（字段名含 Date/Time 或注释含日期/时间） | `tm-time-picker` + `GyTmPick`：日期 showDetail 只开 year/month/day，format="YYYY-MM-DD"；日期时间开全精度，format="YYYY-MM-DD HH:mm:ss" |
+| string 字典字段（`formatterDics` 已注册） | `tm-radio-group`（选项少）/ 字典 picker（选项多） |
+| string 外键字段（`formatterAEntitys` 已注册） | 外键控件（见外键字段） |
+| number | `tm-input type="number"` |
+| boolean | `tm-switch` |
+| 文件字段（`FileFieldMap` 已声明） | 项目已有上传控件（见文件字段） |
 
 多选字典（逗号分隔字符串存储）用 `tm-checkbox-group` + split/join（见 form-template.vue 注释示例）。
 
-## 字典字段识别
+## 字典字段
 
-与 web 端规则相同：字段名含 `status`、`type`（非外键）、`sex`、`gender`、`level`、`category`、`kind`、`mode`，或注释含取值说明（"字典"、"枚举"、"（1:…2:…）"）。
+以 `formatterDics` 注册的字段为准，dicCode 直接取现有值，不重新推断：
 
 - 卡片显示用 `xxxValue`（Formatter 依据 formatterDics 自动生成）
 - 表单：`dics.get(xxxFormatter.formatterDics?.field?.dicCode)` 渲染 tm-radio-group / tm-checkbox-group，外层加 `v-if="xxxFormatter.formatterDics?.field?.dicCode"` 防御
 - 筛选：`render: 'select'` + dicCode
-- SQL/Java 输入时 dicCode 按 `<表名前缀>_<字段语义>` 推断占位，收尾提醒确认；已有 API 输入直接取 formatter 现值
 
-## 外键字段识别
+## 外键字段
 
-以 `_id`/`Id` 结尾且指向业务表的字段：
+以 `formatterAEntitys` 注册的字段为准，关联表以此为依据：
 
-- 卡片：`xxxValue.<关联表显示列>`（formatterAEntitys 生效后关联实体挂在 `xxxValue`）；显示列不确定时读关联表实体确认，仍不确定则收尾询问
+- 卡片：`xxxValue.<关联表显示列>`（formatterAEntitys 生效后关联实体挂在 `xxxValue`）；显示列不确定时读关联表的 API 文件/实体接口确认，仍不确定则收尾询问
 - 表单/筛选，按优先级：
   1. 项目已有该关联实体的 select-list 弹窗组件（`@/pages/.../<name>-select-list.vue` 或 `@/gy/pages/sys/...`）→ 直接复用
   2. 简单关联（字典式小表）→ `GySelectRemote` / `GySelectRemoteInput`（`@/gy/components/gy-select/`），传关联表 apiUrl
   3. 都没有 → 降级为 tm-input 并收尾说明，或按需生成 select-list（见文末）
 
-## 文件字段识别
+## 文件字段
 
-字段名/注释含 `url`、`file`、`img`、`image`、`photo`、`attachment`、`avatar` 的：
+以 API 文件声明的 `xxxFileFieldMap`（如有）为准：
 
-- 服务层已有 `xxxFileFieldMap` 时，`useGyListHandleOptions` 加 `fileFieldMap: xxxFileFieldMap`（列表侧支撑图片/附件回显）
+- `useGyListHandleOptions` 加 `fileFieldMap: xxxFileFieldMap`（列表侧支撑图片/附件回显）
 - 表单上传控件**因项目而异**（gy-upload 等）：查看目标应用 `src/gy/components/` 是否有上传组件，有则参考项目现有表单用法；没有则收尾提醒用户补控件，不要凭空造
 
 ## 校验规则推断
@@ -133,13 +124,14 @@ const rules = computed<Record<string, any>>(() => {
 })
 ```
 
+API 输入无 NOT NULL / 长度依据，必填与 maxlength 按保守策略：
+
 | 条件 | 规则 |
 |------|------|
-| SQL：NOT NULL 且无默认值；Java：`@NotNull`/`@NotBlank`/`@NotEmpty` | `[{ required: true, message: '请输入/请选择<中文名>' }]` |
-| SQL：varchar(n)；Java：`@Size(max=n)` | tm-input 加 `:maxlength="n"` |
-| 手机号 | 追加 `{ pattern: /^1[3-9]\d{9}$/, message: '手机号格式不正确' }` |
+| 名称类主字段，或字段注释明确标注"必填" | `[{ required: true, message: '请输入/请选择<中文名>' }]` |
+| 手机号（字段名/注释含手机/电话） | 追加 `{ pattern: /^1[3-9]\d{9}$/, message: '手机号格式不正确' }` |
 
-已有 API 输入：仅对名称类主字段（或注释明确"必填"）生成必填规则，其余不加，收尾提醒确认。
+其余字段不加必填规则，收尾时提醒用户确认必填项是否合理。
 
 ## 查询条件推断
 
@@ -213,7 +205,7 @@ async initForm(initFormCommon, initFormOptions) {
 
 ## 工作流审批模块
 
-识别特征同 web 端（flow_status 字段 / extends SysFlowForm / 用户明确说审批）。改用 `list-flow-template.vue` + `form-flow-template.vue`，要点：
+识别特征同 web 端（API 文件实体 `extends SysFlowForm` 或含 `flowStatus` 字段 / 用户明确说"审批"、"工作流"、"流程"）。改用 `list-flow-template.vue` + `form-flow-template.vue`，要点：
 
 - **表单**：`useGyFormOptions.flowKey`（后端流程模型 key，收尾确认）；`GyForm :flowHisListHide="true"`（不需历史时）；监听 `@update:flow-node`；禁用逻辑区分 `opt_detail`（锁）与 `opt_flowHandle`（`!!modelForm.flowInstanceId` 提交过即锁）；个别字段按 `flowNode?.documentObj?.enableEdit` 放开；已撤销样式 `:class="{ 'canctm-card': modelForm.flowStatus === FLOW_STATUS_CANCEL }"`（样式类以项目全局定义为准）
 - **列表**：`useGyButton` 配 `isFlowCancel: false` + `showMethodFucMap: { hisListShow() { return false }, flowHandleShow(row) { return flowHandleShowC(props.flowQueryType, row, userStore.userInfo.userId) } }`；卡片显示流程状态（`row.flowStatusValue || '草稿'`）；流程中心/待办入口以 `flowQueryType`（'create'/'run'/'all'）复用列表页

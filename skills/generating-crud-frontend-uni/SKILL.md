@@ -5,19 +5,19 @@ description: 仅供手动调用，请勿自动触发
 
 # 生成 CRUD 前端模块（uni-app 移动端）
 
-根据 **已有前端 API 类、建表 SQL、Java 实体类** 三种输入之一，一次性生成与 `@gy` uni 应用现有风格完全一致的移动端「列表 + 表单」页面模块：列表页壳 + GyList 列表 + use-list 配置 + GyForm 表单，并完成 URL 常量与 `pages.json` 注册。
+根据 **已有前端 API 类**，一次性生成与 `@gy` uni 应用现有风格完全一致的移动端「列表 + 表单」页面模块：列表页壳 + GyList 列表 + use-list 配置 + GyForm 表单，并完成 URL 常量与 `pages.json` 注册。
 
-支持两类模块：**普通 CRUD** 与**工作流审批**（实体带 `flow_status`/`flow_instance_id` 或继承 `SysFlowForm`，使用 `*-flow-template` 系列模板）。
+支持两类模块：**普通 CRUD** 与**工作流审批**（实体 `extends SysFlowForm` 或含 `flowStatus` 字段，使用 `*-flow-template` 系列模板）。
 
-Web 管理端页面请用姊妹技能 `generating-crud-frontend`；本技能只生成 uni-app 端页面，**不生成、不校验服务层**——服务层实体/`xxxUrl`/`xxxFormatter` 假定已存在于 service 包（缺失时提示用户先用 `generating-service-api` 生成 API 层）。
+Web 管理端页面请用姊妹技能 `generating-crud-frontend`；本技能只生成 uni-app 端页面，**不生成、不修改服务层**——服务层实体/`xxxUrl`/`xxxFormatter` 由 `generating-service-api` 技能根据 Java 实体 / Controller 生成更新，本技能只消费。
 
-## 输入来源
+## 输入
 
-| 输入 | 识别特征 | 说明 |
-| --- | --- | --- |
-| 已有前端 API 类（首选） | 给出 `<service包>/src/api/**/*.ts` 路径，或实体名可被检索到 | **唯一事实来源**：字段、字典 dicCode、外键、文件字段一律取自该文件 |
-| 建表 SQL（CREATE TABLE） | 用户粘贴 SQL 语句 | 仅作字段来源解析；service 包需已有对应导出 |
-| Java 实体类 | 粘贴 Java 代码或给出 `.java` 文件路径 | 同上 |
+| 输入 | 识别特征 |
+| --- | --- |
+| 已有前端 API 类 | 给出 `<service包>/src/api/**/*.ts` 路径，或给出实体/模块名供检索 |
+
+API 文件是页面生成的**唯一事实来源**：字段、字典 dicCode、外键、文件字段一律取自该文件。用户只给实体名/表名时，按名称在服务层 `src/api/` 下检索（如 `Grep "class XxxApi"`）；**找不到 → 提示先用 `generating-service-api` 生成 API，本技能不代生成**。
 
 ## 项目架构要点
 
@@ -34,9 +34,9 @@ Web 管理端页面请用姊妹技能 `generating-crud-frontend`；本技能只�
 
 ## 工作流
 
-### 步骤 1：识别输入来源并解析
+### 步骤 1：读取并解析 API 文件
 
-按 references/generation-rules.md 的「输入来源解析」提取字段清单、字典字段、外键字段、文件字段、工作流特征。已有 API 类输入时以该文件为准，不做额外推断。
+按 references/generation-rules.md 的「API 文件解析」提取字段清单、字典字段、外键字段、文件字段、Api 类自定义方法、工作流特征。以该文件为准，不做额外推断。
 
 ### 步骤 2：确认目标位置与范围（只问一次）
 
@@ -44,7 +44,7 @@ Web 管理端页面请用姊妹技能 `generating-crud-frontend`；本技能只�
 
 1. **目标 uni 应用**：仓库有多个 uni 应用时选哪个（单应用免问）
 2. **区域目录**：`src/pages/` 下的分组目录（参考该应用已有业务页面的分组）
-3. **模块中文名**：navbar 标题与 pages.json 注释用。默认：SQL 取表注释；Java 取类注释；已有 API 取实体注释/文件名语义
+3. **模块中文名**：navbar 标题与 pages.json 注释用。默认取实体接口注释/文件名语义
 4. **模块类型**：标准 CRUD / 工作流审批。默认按步骤 1 特征自动判定；判定为工作流时追加确认 `flowKey`
 5. **生成范围**（multiSelect）：列表页（list-page + list + use-list）、表单页（form）。默认全选；只读/日志类模块可只要列表
 
@@ -91,8 +91,8 @@ Web 管理端页面请用姊妹技能 `generating-crud-frontend`；本技能只�
 1. 运行类型校验（脚本名以步骤 3 探测为准，通常）：`pnpm --filter <uni应用包名> type-check`，修复报错
 2. 告知用户：
    - 生成的文件清单与注册位置
-   - 字典字段（SQL / Java 输入）：列出推断的占位 dicCode，请确认真实字典编码；已有 API 输入的 dicCode 取自 formatter，无需确认
-   - 外键字段：列出推断的关联关系与选择组件，请确认
+   - 字典字段：dicCode 取自 formatter，无需确认
+   - 外键字段：关联关系取自 `formatterAEntitys`，列出所用显示列与选择组件，请确认
    - 工作流模块：确认 `flowKey` 与后端流程模型 key 一致
    - `itemHeight` 为估算值，真机/H5 联调时按卡片实际高度校准
    - 表单 `rules` 校验规则按保守策略生成，请确认必填项

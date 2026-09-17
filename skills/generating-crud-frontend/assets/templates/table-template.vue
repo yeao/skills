@@ -5,7 +5,7 @@
   - servicePackage：服务层包名（如 '@gy/<app>-service'，具体以当前仓库的服务层包名为准）
   - apiInstancesFile：Web 端 api 实例文件（如 '@/api/equ-service'）
 注意：仅当目标应用是 sys-web 自身时改用相对路径导入（参考 sys-web/src/views/sys/role/）
-注意：三种输入（SQL / Java 实体 / 已有 API）均使用本模板；已有 API 输入时占位符沿用现有 API 文件中的命名
+注意：占位符沿用已有 API 文件中的命名（接口名、变量名、文件名），不重新命名
 ============================================================ -->
 <template>
   <GyTable

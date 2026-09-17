@@ -3,7 +3,7 @@
 基于 @gy 项目标准表单弹窗风格（项目模块：组件从 @gy/sys-web 导入）
 占位符：{{EntityName}} / {{entityName}} / {{模块中文名}} / {{servicePackage}} / {{apiInstancesFile}}
 注意：仅当目标应用是 sys-web 自身时改用相对路径导入（参考 sys-web/src/views/sys/role/components/）
-注意：三种输入（SQL / Java 实体 / 已有 API）均使用本模板；已有 API 输入时占位符沿用现有 API 文件中的命名
+注意：占位符沿用已有 API 文件中的命名（接口名、变量名、文件名），不重新命名
 ============================================================ -->
 <template>
   <GyForm

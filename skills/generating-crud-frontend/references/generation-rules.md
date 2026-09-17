@@ -1,18 +1,18 @@
 # 生成规则
 
-三种输入（**建表 SQL / Java 实体 / 已有前端 API**）到前端**页面**代码的映射规则。生成时逐字段应用。
+**已有前端 API 类**到前端**页面**代码的映射规则。生成时逐字段应用。
 
-服务层 API 文件（实体接口、formatter、url、Api 类、`lib/main.ts` 导出）不在本 skill 职责内，由 **generating-service-api** skill 根据实体 / Controller 生成更新；本文档涉及 formatter 的规则均指"从已有 API 文件**读取**"，API 缺失时按占位推断并在收尾提醒。
+服务层 API 文件（实体接口、formatter、url、Api 类、`lib/main.ts` 导出）不在本 skill 职责内，由 **generating-service-api** skill 根据实体 / Controller 生成更新；本 skill 只**读取**该文件，并以它为页面生成的唯一事实来源。
 
 ## 目录
 
 1. [仓库与包结构](#仓库与包结构)
-2. [输入来源解析](#输入来源解析)
+2. [API 文件解析](#api-文件解析)
 3. [字段过滤](#字段过滤)
-4. [类型映射](#类型映射)
-5. [字典字段识别](#字典字段识别)
-6. [外键字段识别](#外键字段识别)
-7. [文件字段识别](#文件字段识别)
+4. [表单组件推断](#表单组件推断)
+5. [字典字段](#字典字段)
+6. [外键字段](#外键字段)
+7. [文件字段](#文件字段)
 8. [校验规则推断](#校验规则推断)
 9. [查询条件推断](#查询条件推断)
 10. [表格列生成](#表格列生成)
@@ -42,121 +42,79 @@
 
 ---
 
-## 输入来源解析
-
-### 建表 SQL
-
-逐字段解析：名称、类型、长度、NOT NULL、默认值、注释。字段名 snake_case → 驼峰（`material_name` → `materialName`）。
-
-### Java 实体
-
-- 类名即实体名（已是大驼峰）；`@TableName("xxx")` 提供表名（用于推断目标应用）
-- 中文名来源：类上 `@Schema(title)` / `@ApiModel` / Javadoc 注释
-- **只解析类自身声明的字段**；继承自基类（BaseEntity/DefaultEntity 等）的字段一律忽略
-- 跳过 `serialVersionUID`、`static`、`transient` 字段
-- 字段中文名优先级：`@Schema(description)` > `@ApiModelProperty(value)` > 行内/上方 `//`、`/** */` 注释 > 按字段名语义翻译
-
-### 已有前端 API
+## API 文件解析
 
 该文件是**唯一事实来源**，不做额外推断：
 
 - 实体接口字段与行尾注释 → 字段名、中文名
-- `formatterDics` → 字典字段（dicCode 为真实值，无需占位推断）
+- `formatterDics` → 字典字段（dicCode 为真实值）
 - `formatterAEntitys` → 外键字段及关联表（显示列仍需按外键规则确认）
 - `xxxFileFieldMap`（如有）→ 文件字段
+- Api 类自定义方法（`cancel`/`copy`/`checkXxx`/`exportByIds` 等）→ 页面按钮与操作的绑定依据
 - TS 类型即最终类型，**无需类型映射**
 - 无 NOT NULL / 默认值信息：必填与初始化按保守策略（见校验规则推断），收尾提醒确认
 
 ## 字段过滤
 
-以下字段由 `DefaultEntity` 基类提供，**默认不生成表单项**（实体接口中的声明由 generating-service-api 负责过滤）：
+以下字段由 `DefaultEntity` 基类提供，**默认不生成表单项**（实体接口中不会声明，由 generating-service-api 负责过滤）：
 
 `id`、`create_time`、`update_time`、`create_user_id`、`create_real_name`、`update_user_id`、`update_real_name`、`is_delete`、`is_submit`、`is_sure`、`parent_id`
 
-Java 实体中继承自基类的字段同理忽略（只解析类自身声明的字段即可自然过滤）。
-
 其中 `create_time`、`create_real_name`（`createTime`、`createRealName`）可作为表格列和查询条件（参考 equ-cmd-log）。
 
-## 类型映射
+## 表单组件推断
 
-### SQL → TS
+TS 类型来自实体接口，表单组件按类型与字段语义推断：
 
-| SQL 类型 | TS 类型 | 表单组件 |
-|----------|---------|----------|
-| varchar / char / text / longtext | string | el-input（text 类或长描述用 `type="textarea" resize="none"`） |
-| int / bigint / smallint（业务数值） | number | el-input-number |
-| tinyint(1) / boolean / bit | boolean | el-switch |
-| tinyint（非1位）/ 状态类字段 | string（走字典） | el-select |
-| decimal / numeric / float / double | number | el-input-number |
-| date | string | el-date-picker（type="date" value-format="YYYY-MM-DD"） |
-| datetime / timestamp | string | el-date-picker（type="datetime" value-format="YYYY-MM-DD HH:mm:ss"） |
-| 以 `_id` 结尾的关联字段 | string | 关联选择组件（见外键字段） |
+| 字段特征 | 表单组件 |
+|----------|----------|
+| string 普通文本 | el-input（长描述/备注语义用 `type="textarea" resize="none"`） |
+| string 日期语义（字段名含 Date/Time 或注释含日期/时间） | el-date-picker（`type="date" value-format="YYYY-MM-DD"` 或 `type="datetime" value-format="YYYY-MM-DD HH:mm:ss"`；时分秒用 el-time-picker `value-format="HH:mm:ss"`） |
+| string 字典字段（`formatterDics` 已注册） | el-select（绑定 `dics.get(dicCode)`） |
+| string 外键字段（`formatterAEntitys` 已注册） | 关联表 `XxxSelectTable` 组件（见外键字段） |
+| number | el-input-number（非负加 `:min="0"`） |
+| boolean | el-switch |
+| 文件字段（`FileFieldMap` 已声明） | el-upload + `fileListAll`（见文件字段） |
 
-### Java → TS
+## 字典字段
 
-| Java 类型 | TS 类型 | 表单组件 |
-|-----------|---------|----------|
-| String | string | el-input（长描述/含 remark 语义用 `type="textarea" resize="none"`） |
-| Integer / Long / Short / int / long / short / BigInteger | number | el-input-number |
-| Boolean / boolean | boolean | el-switch |
-| BigDecimal / Double / Float / double / float | number | el-input-number |
-| LocalDate | string | el-date-picker（type="date" value-format="YYYY-MM-DD"） |
-| Date / LocalDateTime / Timestamp | string | el-date-picker（type="datetime" value-format="YYYY-MM-DD HH:mm:ss"） |
-| LocalTime | string | el-time-picker（value-format="HH:mm:ss"） |
-| 枚举 / 其他对象类型 | string（结合字段名判断走字典或外键） | el-select / 关联选择组件 |
+以 `formatterDics` 注册的字段为准，dicCode 直接取现有值，不重新推断：
 
-Java 字段名已是驼峰，无需转换；若有 `@JsonProperty` / `@JSONField` 注解则以注解值为准。
+- 表格列：`prop="<field>Value"`
+- 表单：el-select 绑定 `dics.get(dicCode)`
+- 筛选器：`render: 'select'` + `dicCode: xxxFormatter.formatterDics?.field?.dicCode`
+- 实体接口中该字段类型为 `string`，通常伴生 `<field>Value` 展示字段
 
-## 字典字段识别
+## 外键字段
 
-满足任一条件即视为字典字段（三种输入判断依据相同）：
+以 `formatterAEntitys` 注册的字段为准（如 `equTypeId: [{ apiUrl: equTypeUrl }]`），关联表以此为依据：
 
-1. 字段名含 `status`、`type`（且非外键 `_id`/`Id`）、`sex`、`gender`、`level`、`category`、`kind`、`mode`
-2. 字段注释中出现"字典"、"枚举"、"（1:…2:…）"这类取值说明
-3. `is_` 开头的布尔字段：用 el-switch，或走 `true_false` 字典
-4. Java 字段类型为枚举，或带 `@Schema` 字典说明的，同样按字典处理
-
-字典处理：
-
-- dicCode 以服务层 API 文件 `formatterDics` 中的现有值为准（该文件由 generating-service-api 维护），不重新推断
-- **API 文件缺失时**（仅 SQL / Java 输入）：按 `<表名前缀>_<字段语义>` 占位推断（如 `equ_cmd_status`），收尾时提醒用户确认真实字典编码并补齐 API 文件
-- 页面写法：表格列 `prop="<field>Value"`；表单 el-select 绑定 `dics.get(dicCode)`；筛选器 `render: 'select'` + `dicCode: xxxFormatter.formatterDics?.field?.dicCode`
-
-## 外键字段识别
-
-以 `_id` / `Id` 结尾且指向业务表的字段（如 `equ_type_id`/`equTypeId`、`user_id`/`userId`）：
-
-- 外键关联以服务层 API 文件 `formatterAEntitys` 为准（`formatterAEntitys: { equTypeId: [{ apiUrl: equTypeUrl }] }`，由 generating-service-api 维护）；API 文件缺失时按字段名语义推断关联表，收尾时提醒确认并补齐
-- 表格列：`prop="equTypeIdValue.<关联表显示列>"`（如 `.typeName`），不确定显示列名时读取关联表实体确认，仍不确定则在收尾时询问
+- 表格列：`prop="equTypeIdValue.<关联表显示列>"`（如 `.typeName`），不确定显示列名时读取关联表的 API 文件/实体接口确认，仍不确定则在收尾时询问
 - 表单/筛选：使用关联表的 `XxxSelectTable` 组件（若项目中已有，路径形如 `../equ-type/components/equ-type-select-table.vue`）；没有则收尾提醒用户
 - 无法确定关联表时，降级为普通 el-input，并在收尾时说明
 
-## 文件字段识别
+## 文件字段
 
-字段名/注释含 `url`、`file`、`img`、`image`、`photo`、`attachment`、`avatar`、素材类的（三种输入判断依据相同）：
+以 API 文件声明的 `xxxFileFieldMap`（如有）为准：
 
-- `xxxFileFieldMap` 在服务层 API 文件中声明（由 generating-service-api 维护），页面直接沿用；API 文件缺失时收尾提醒补齐
 - 表单：插槽解构加 `fileListAll`，用 el-upload + `gyForm?.uploadRequestAndDeleteOther(request, modelForm)`（参考 form-template.vue 注释示例）
 - 表格：可用 audio/img 预览（参考 equ-material 的 audio 写法），或简单显示文件名
 
 ## 校验规则推断
 
-生成 `rules` 对象（写在 form 组件中）：
+生成 `rules` 对象（写在 form 组件中）。API 输入无 NOT NULL / 长度依据，必填与 maxlength 按保守策略：
 
 | 条件 | 规则 |
 |------|------|
-| SQL：NOT NULL 且无默认值、非外键自动填充字段；Java：`@NotNull` / `@NotBlank` / `@NotEmpty` | `{ required: true, message: '请输入/请选择/请上传<中文名>', trigger: 'blur' }` |
-| SQL：varchar(n)；Java：`@Size(max = n)` / `@Length(max = n)` | el-input 加 `:maxlength="n"` |
+| 名称类主字段，或字段注释明确标注"必填" | `{ required: true, message: '请输入/请选择/请上传<中文名>', trigger: 'blur' }` |
 | 手机号（字段名/注释含手机/电话） | 追加 `{ pattern: /^1[3-9]\d{9}$/, message: '手机号格式不正确', trigger: 'blur' }` |
-| 邮箱（含 Java `@Email`） | 追加 `type: 'email'` 规则 |
+| 邮箱（字段名/注释含邮箱/email） | 追加 `type: 'email'` 规则 |
 
-有默认值的字段不强制必填。
-
-**已有 API 输入**：无 NOT NULL 依据，仅对名称类主字段（或注释中明确标注"必填"的字段）生成必填规则，其余不加，收尾时提醒用户确认。
+其余字段不加必填规则，收尾时提醒用户确认必填项是否合理。
 
 ## 查询条件推断
 
-列表页 `filterFieldMap`（通常 2~4 个，不要每字段都加；三种输入推断方式相同）：
+列表页 `filterFieldMap`（通常 2~4 个，不要每字段都加）：
 
 | 字段特征 | 过滤方式 |
 |----------|----------|
@@ -216,8 +174,7 @@ Java 字段名已是驼峰，无需转换；若有 `@JsonProperty` / `@JSONField
 
 带审批流程的模块（发起 → 审批 → 归档）。**识别特征**（满足任一即按工作流模板生成）：
 
-- 建表 SQL 含 `flow_status` / `flow_instance_id` 字段
-- Java 实体 `extends SysFlowForm`（或含 flowStatus/flowInstanceId 字段）
+- API 文件实体 `extends SysFlowForm`（或含 flowStatus/flowInstanceId 字段）
 - 用户明确说"审批"、"工作流"、"流程"
 
 此时改用 `*-flow-template` 系列模板（table-flow / form-flow / manage-flow / dept-flow），与普通 CRUD 模板的差异如下。

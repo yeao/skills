@@ -23,8 +23,8 @@ npx skills add -g yeao/skills
 
 | Skill | 说明 |
 | --- | --- |
-| [`generating-crud-frontend`](./skills/generating-crud-frontend/SKILL.md) | 根据建表 SQL / Java 实体类 / 已有前端 API 类，一次性生成与项目风格一致的 CRUD 前端**页面**（列表页 + 表单弹窗 + web 端 API 实例注册），支持普通 CRUD 与工作流审批两类模块；不生成服务层 API 文件 |
-| [`generating-crud-frontend-uni`](./skills/generating-crud-frontend-uni/SKILL.md) | `generating-crud-frontend` 的 uni-app 移动端版：生成 GyList 列表页 + GyForm 表单页 + use-list 配置，并完成页面 URL 常量与 `pages.json` 注册，支持普通 CRUD 与工作流审批两类模块；不生成服务层 API 文件 |
+| [`generating-crud-frontend`](./skills/generating-crud-frontend/SKILL.md) | 根据**已有前端 API 类**，一次性生成与项目风格一致的 CRUD 前端**页面**（列表页 + 表单弹窗 + web 端 API 实例注册），支持普通 CRUD 与工作流审批两类模块；不生成服务层 API 文件（API 生成见 `generating-service-api`） |
+| [`generating-crud-frontend-uni`](./skills/generating-crud-frontend-uni/SKILL.md) | 根据**已有前端 API 类**，一次性生成与项目风格一致的 CRUD 移动端**页面**（GyList 列表页 + GyForm 表单页 + use-list 配置 + URL 常量与 `pages.json` 注册），`generating-crud-frontend` 的 uni-app 版；不生成服务层 API 文件（API 生成见 `generating-service-api`） |
 | [`generating-service-api`](./skills/generating-service-api/SKILL.md) | 服务层 API 的唯一生成入口：根据 **Java 实体类**或 **Spring Controller** 生成/增量更新 `@gy` 风格的前端 API 类（实体接口 + formatter + Api 类），补缺失、修不一致、删多余（删除前检查调用方），并验证重建 dist |
 
 > 三个 skill 均设计为**手动调用**（不会自动触发），在对话中明确说明要使用即可。
