@@ -1,24 +1,75 @@
 ---
-name: update-api-from-controller
+name: generating-service-api
 description: 仅供手动调用，请勿自动触发
 ---
 
-# Update Api From Controller
+# 根据实体 / Controller 生成更新前端 API
 
-将后端 Spring Controller 的端点完全同步到前端 `@gy` 风格的 API 类：补缺失、修不一致、删多余（删除前查调用方），最后验证并重建 dist。
+服务层 API 的**唯一**生成入口：根据 **Java 实体类**或 **Spring Controller** 生成/增量更新 `@gy` 风格的前端 API 文件（实体接口 + formatter + url + Api 类），完成 `lib/main.ts` 导出注册，最后验证并重建 dist。**不生成任何页面**——列表页/表单页请用 generating-crud-frontend skill。
+
+## 输入来源
+
+| 输入                                   | 用途                                                                                             |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Java 实体类（粘贴代码或 `.java` 路径） | 生成/更新实体接口、formatter（字典/外键/文件）、url 常量、`XxxApi extends SuperCrudApi<T>`；`extends SysFlowForm` → 工作流风格 |
+| Spring Controller（`.java` 路径）      | 按端点对齐 Api 类方法：补缺失、修不一致、删多余（删除前查调用方）                                 |
+
+两者都给时：实体决定实体接口与 formatter，Controller 决定方法集合。仅有 Controller 时不改实体接口（除非方法签名暴露出缺失字段）。
 
 ## 项目约定
 
 以 `D:\svn-java\pri\jail\trunk` 为根（若在别处，按用户给定路径推断）：
 
-- **后端**：`jail-parent/jail-service-parent/<module>/src/main/java/.../controller/**/<Name>Controller.java`
+- **后端**：`jail-parent/jail-service-parent/<module>/src/main/java/.../controller/**/<Name>Controller.java`；实体通常在 `.../entity/` 或 `.../model/` 下
 - **前端 service 包**：`ui/<project>/service/<project>-service/`
   - API 源码：`src/api/<app>/<name>.ts`，类名 `XxxApi`
   - 包入口：`lib/main.ts`（`export * from '../src/api/...'`）
   - 基础路径变量：`src/api/api-service.ts`（如 `export const jailCriminalAppName = '/sys'`）
 - **前端 app 工程**：`ui/<project>/app-*`（删除方法前在此搜索调用方）
 
-## 映射规则（Controller → Api）
+其他 `@gy` 仓库（多应用形态 `<app>-service` + `<app>-web`，或单服务层形态）的包结构、命名转换与目标包推断，见 [references/entity-rules.md](references/entity-rules.md) 的"仓库与包结构"。
+
+## 实体模式工作流
+
+```
+任务进度：
+- [ ] 1. 解析实体
+- [ ] 2. 定位/新建 API 文件
+- [ ] 3. 差异比对
+- [ ] 4. 写入代码
+- [ ] 5. 验证与重建
+- [ ] 6. 汇报
+```
+
+### 1. 解析实体
+
+读取 `.java` 文件（用户粘贴则直接解析），按 [references/entity-rules.md](references/entity-rules.md) 提取：类名/表名/中文名、类自身声明的字段（忽略基类字段）、字段类型与注释、字典/外键/文件字段特征、工作流特征（`extends SysFlowForm` 或含 `flowStatus` 字段）。
+
+### 2. 定位/新建 API 文件
+
+- 按实体名搜索已有文件：`Grep "class XxxApi"` 或按 kebab-case 文件名在 `src/api/` 下查找
+- 已存在 → 通读，沿用其现有风格（import、注释习惯、自定义方法）
+- 不存在 → 在推断的分组目录下新建，参照同目录已有文件；并在 `lib/main.ts` 对应分组注释下追加 `export * from '../src/api/<group>/<file>'`
+- 目标位置无法推断时用一次 AskUserQuestion 确认（目标包、分组目录、模块中文名）
+
+### 3. 差异比对
+
+- **新建**：按模板整体生成
+- **更新**：实体接口逐字段比对——补缺失字段、修正类型/注释、删除实体已不存在的字段（先确认非后端联表展示字段）；formatter 同步补字典/外键/文件注册；**保留**已有的自定义方法、状态 map 与人工调整，不要重写无变化部分
+
+### 4. 写入代码
+
+- 标准 CRUD：按 [assets/templates/api-template.ts](assets/templates/api-template.ts)
+- 工作流实体：按 [assets/templates/api-flow-template.ts](assets/templates/api-flow-template.ts)
+- 字典 dicCode、外键关联表、流程状态字典按 entity-rules 推断，无法确定的用占位并记入汇报
+
+### 5-6. 验证重建与汇报
+
+同下方[验证与重建](#验证与重建)、[汇报](#汇报)。汇报中额外列出：待确认的 dicCode 占位、推断的外键关联表、无法确定关联的字段；并提醒用户 API 已就绪，可用 generating-crud-frontend 生成页面（web 端 `<app>-service.ts` 的实例化注册由该 skill 或用户完成）。
+
+## Controller 模式
+
+### 映射规则（Controller → Api）
 
 | 后端                                       | 前端                                                                                       |
 | ------------------------------------------ | ------------------------------------------------------------------------------------------ |
@@ -39,7 +90,7 @@ import { type BaseApi, type RestResponse, SuperApi } from '@gy/base'
 import { jailCriminalAppName } from '../api-service'
 ```
 
-## 工作流
+### 工作流
 
 ```
 任务进度：
@@ -51,7 +102,7 @@ import { jailCriminalAppName } from '../api-service'
 - [ ] 6. 汇报
 ```
 
-### 1. 解析 Controller
+#### 1. 解析 Controller
 
 通读给定文件，提取每个端点的：HTTP 方法、路径、`@Operation` 描述、参数（位置+类型）、返回类型、是否带 `@IgnoreUserToken`。
 
@@ -59,13 +110,13 @@ import { jailCriminalAppName } from '../api-service'
 
 **`generate` 类接口**：方法名为 `generate` 的数据生成类端点（多由后端定时任务/待办驱动，前端通常不直接调用）→ 默认**不生成**，记入汇报清单。**例外**：若对应 `ui/<project>/app-*` 工程 src 中已有对该方法的调用，或用户明确要求生成，则照常生成。
 
-### 2. 定位前端 API 文件
+#### 2. 定位前端 API 文件
 
 用户未直接给出 api 文件时，按类名搜索：`Grep "class CriminalApi"` 于 `ui/*/service/*/src`。找到后通读该文件，沿用其现有风格（import、url 常量、继承方式、注释习惯）。
 
 找不到类 → 在同包下新建文件（参照同目录已有文件的结构），并在 `lib/main.ts` 追加 `export * from ...`。
 
-### 3. 差异比对
+#### 3. 差异比对
 
 前端方法与后端端点按**端点路径**对齐（方法名通常与路径一致），分三类：
 
@@ -73,7 +124,7 @@ import { jailCriminalAppName } from '../api-service'
 - **不一致**：HTTP 方法、参数列表、路径不同 → 修正为与后端一致
 - **多余**：前端有、后端无 → 准备删除（先执行第 4 步的调用方检查）
 
-### 4. 写入代码
+#### 4. 写入代码
 
 - 按映射规则生成方法，方法顺序与 Controller 一致
 - 已有方法仅在不一致时修改，不要重写无变化的方法
@@ -97,7 +148,7 @@ syncFlxCriminalRelation(isFirst: boolean): Promise<RestResponse<void>> {
 }
 ```
 
-### 5. 验证与重建
+## 验证与重建
 
 在 service 包目录（含 `package.json` 的那层）依次执行：
 
@@ -107,9 +158,9 @@ syncFlxCriminalRelation(isFirst: boolean): Promise<RestResponse<void>> {
 
 任一步失败 → 修复后重跑，全部通过才算完成。注意 `pnpm lib` 内含 `eslint --fix`，可能顺带修正同包其他文件的风格问题，属预期行为。
 
-### 6. 汇报
+## 汇报
 
-用表格列出：新增方法、修正方法（说明改了什么）、删除方法、保留但后端已移除的方法、跳过的调试/`generate` 接口。
+用表格列出：新增/修改的实体接口字段（实体模式）、新增方法、修正方法（说明改了什么）、删除方法、保留但后端已移除的方法、跳过的调试/`generate` 接口、待确认项（dicCode 占位、外键关联表、流程状态字典）。
 
 ## 特殊情况
 

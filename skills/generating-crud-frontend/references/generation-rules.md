@@ -1,6 +1,8 @@
 # 生成规则
 
-三种输入（**建表 SQL / Java 实体 / 已有前端 API**）到前端代码的映射规则。生成时逐字段应用。
+三种输入（**建表 SQL / Java 实体 / 已有前端 API**）到前端**页面**代码的映射规则。生成时逐字段应用。
+
+服务层 API 文件（实体接口、formatter、url、Api 类、`lib/main.ts` 导出）不在本 skill 职责内，由 **generating-service-api** skill 根据实体 / Controller 生成更新；本文档涉及 formatter 的规则均指"从已有 API 文件**读取**"，API 缺失时按占位推断并在收尾提醒。
 
 ## 目录
 
@@ -67,7 +69,7 @@
 
 ## 字段过滤
 
-以下字段由 `DefaultEntity` 基类提供，**不写入实体接口、不生成表单项**：
+以下字段由 `DefaultEntity` 基类提供，**默认不生成表单项**（实体接口中的声明由 generating-service-api 负责过滤）：
 
 `id`、`create_time`、`update_time`、`create_user_id`、`create_real_name`、`update_user_id`、`update_real_name`、`is_delete`、`is_submit`、`is_sure`、`parent_id`
 
@@ -116,40 +118,24 @@ Java 字段名已是驼峰，无需转换；若有 `@JsonProperty` / `@JSONField
 
 字典处理：
 
-- formatter 注册：`formatterDics: { cmdStatus: { dicCode: '<前缀>_<字段语义>' } }`，dicCode 按 `<表名前缀>_<字段语义>` 推断（如 `equ_cmd_status`），收尾时提醒用户确认
-- 实体接口中该字段类型为 `string`
-- **已有 API 输入**：dicCode 直接取 `formatterDics` 中的现有值，不重新推断
+- dicCode 以服务层 API 文件 `formatterDics` 中的现有值为准（该文件由 generating-service-api 维护），不重新推断
+- **API 文件缺失时**（仅 SQL / Java 输入）：按 `<表名前缀>_<字段语义>` 占位推断（如 `equ_cmd_status`），收尾时提醒用户确认真实字典编码并补齐 API 文件
+- 页面写法：表格列 `prop="<field>Value"`；表单 el-select 绑定 `dics.get(dicCode)`；筛选器 `render: 'select'` + `dicCode: xxxFormatter.formatterDics?.field?.dicCode`
 
 ## 外键字段识别
 
 以 `_id` / `Id` 结尾且指向业务表的字段（如 `equ_type_id`/`equTypeId`、`user_id`/`userId`）：
 
-- formatter 注册（从同目录导入关联表的 url）：
-
-```ts
-import { equTypeUrl } from './equ-type'
-// ...
-formatterAEntitys: {
-  equTypeId: [{ apiUrl: equTypeUrl }]
-}
-```
-
+- 外键关联以服务层 API 文件 `formatterAEntitys` 为准（`formatterAEntitys: { equTypeId: [{ apiUrl: equTypeUrl }] }`，由 generating-service-api 维护）；API 文件缺失时按字段名语义推断关联表，收尾时提醒确认并补齐
 - 表格列：`prop="equTypeIdValue.<关联表显示列>"`（如 `.typeName`），不确定显示列名时读取关联表实体确认，仍不确定则在收尾时询问
 - 表单/筛选：使用关联表的 `XxxSelectTable` 组件（若项目中已有，路径形如 `../equ-type/components/equ-type-select-table.vue`）；没有则收尾提醒用户
 - 无法确定关联表时，降级为普通 el-input，并在收尾时说明
-- **已有 API 输入**：外键以 `formatterAEntitys` 为准，仅需确认显示列与表单选择组件
 
 ## 文件字段识别
 
 字段名/注释含 `url`、`file`、`img`、`image`、`photo`、`attachment`、`avatar`、素材类的（三种输入判断依据相同）：
 
-- API 层声明（仅 SQL / Java 输入需要新建；已有 API 输入直接沿用现有 `FileFieldMap`）：
-
-```ts
-import type { FileFieldMap } from '@gy/sys-service'
-export const xxxFileFieldMap: FileFieldMap = { materialUrl: 'self' }
-```
-
+- `xxxFileFieldMap` 在服务层 API 文件中声明（由 generating-service-api 维护），页面直接沿用；API 文件缺失时收尾提醒补齐
 - 表单：插槽解构加 `fileListAll`，用 el-upload + `gyForm?.uploadRequestAndDeleteOther(request, modelForm)`（参考 form-template.vue 注释示例）
 - 表格：可用 audio/img 预览（参考 equ-material 的 audio 写法），或简单显示文件名
 
@@ -234,15 +220,18 @@ export const xxxFileFieldMap: FileFieldMap = { materialUrl: 'self' }
 - Java 实体 `extends SysFlowForm`（或含 flowStatus/flowInstanceId 字段）
 - 用户明确说"审批"、"工作流"、"流程"
 
-此时改用 `*-flow-template` 系列模板（api-flow / table-flow / form-flow / manage-flow / dept-flow），与普通 CRUD 模板的差异如下。
+此时改用 `*-flow-template` 系列模板（table-flow / form-flow / manage-flow / dept-flow），与普通 CRUD 模板的差异如下。
 
-### 服务层（api-flow-template.ts）
+### 服务层 API（由 generating-service-api 生成）
 
-- 实体继承 `SysFlowForm`（来自 `@gy/sys-service`），**不是** `DefaultEntity`；流程字段（flowStatus、flowInstanceId、runUserIds、runListTaskName 等）由基类提供，不声明；可加 `flowStatusValue: string` 展示字段
-- `formatterDics.flowStatus` 的 dicCode 为项目的流程状态字典编码（占位符 `{{flowStatusDicCode}}`，收尾时向用户确认；若项目服务层已有统一常量则直接复用，勿重复定义）
-- `formatterAEntitys` 展开 `...flowRunUserIdsFormatter`（来自 `@gy/sys-service`），支撑列表页"当前处理人"列
-- 自定义接口用 `this.httpRequest({ url: this.url + '/xxx', ... })`：`cancel(id)`（GET 撤销）；按需 `copy(params)`、`checkXxx(entity)`（提交前校验）、`uploadById(id, files)`（FormData）
-- 业务类型常量（同表多业务类型时）：`export const xxx_approve_type_daily = 'daily'` 风格
+工作流实体的 API 文件按 api-flow-template 风格生成（实体继承 `SysFlowForm`、`formatterDics.flowStatus` 挂流程状态字典、`formatterAEntitys` 展开 `...flowRunUserIdsFormatter`、含 `cancel`/`copy`/`checkXxx` 等自定义接口）。本 skill 生成页面前**读取并确认**该文件已具备页面所需依赖：
+
+- `flowStatus` 已注册字典（列表页状态列 `getFlowStatusTag(dics, row.flowStatus)` 依赖）
+- `...flowRunUserIdsFormatter` 已展开（列表页"当前处理人"列依赖）
+- 撤销按钮依赖的 `cancel(id)` 方法已存在；按需 `copy`、`checkXxx`（提交前校验）、`uploadById`（FormData 上传）
+
+缺失时不自行修改 API 文件，提醒用户走 generating-service-api 补齐。
+
 - 流程状态 → el-tag 类型：模板内置基于 `FLOW_STATUS_START/END/CANCEL`（`@gy/sys-service`）的通用 `getFlowStatusTag`；若项目已有基于字典的统一实现，优先复用项目版本
 - 编辑按钮显隐：模板内置通用 `updateTableShow`（我的草稿视图 + 创建人 + 未审批可编辑）；项目有更细规则时在 `showMethodFucMap` 中调整
 
@@ -275,5 +264,4 @@ export const xxxFileFieldMap: FileFieldMap = { materialUrl: 'self' }
 ### 收尾补充（工作流模块）
 
 - 提醒用户确认 `flowKey` 与后端流程模型 key 一致
-- 提醒用户确认流程状态字典编码（`{{flowStatusDicCode}}`）
-- 提醒确认 `cancel`/`copy`/`checkXxx` 等自定义后端接口是否存在，删除不存在的按钮与方法
+- 提醒确认 `cancel`/`copy`/`checkXxx` 等自定义后端接口是否存在，删除页面中不存在的按钮（对应 API 方法与流程状态字典编码属服务层，需要调整时提醒用户走 generating-service-api）
