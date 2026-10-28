@@ -3,18 +3,19 @@ name: generating-service-api
 description: 仅供手动调用，请勿自动触发
 ---
 
-# 根据实体 / Controller 生成更新前端 API
+# 根据实体 / 建表 SQL / Controller 生成更新前端 API
 
-服务层 API 的**唯一**生成入口：根据 **Java 实体类**或 **Spring Controller** 生成/增量更新 `@gy` 风格的前端 API 文件（实体接口 + formatter + url + Api 类），完成 `lib/main.ts` 导出注册，最后验证并重建 dist。**不生成任何页面**——列表页/表单页请用 generating-crud-frontend skill。
+服务层 API 的**唯一**生成入口：根据 **Java 实体类**、**建表 SQL** 或 **Spring Controller** 生成/增量更新 `@gy` 风格的前端 API 文件（实体接口 + formatter + url + Api 类），完成 `lib/main.ts` 导出注册，最后验证并重建 dist。**不生成任何页面**——列表页/表单页请用 generating-crud-frontend skill。
 
 ## 输入来源
 
 | 输入                                   | 用途                                                                                             |
 | -------------------------------------- | ------------------------------------------------------------------------------------------------ |
 | Java 实体类（粘贴代码或 `.java` 路径） | 生成/更新实体接口、formatter（字典/外键/文件）、url 常量、`XxxApi extends SuperCrudApi<T>`；`extends SysFlowForm` → 工作流风格 |
+| 建表 SQL（粘贴 DDL 或 `.sql` 路径）    | 同实体类：表名/列名/类型/COMMENT 提供命名、类型与中文名；含 `flow_status`/`flow_instance_id` 列 → 工作流风格 |
 | Spring Controller（`.java` 路径）      | 按端点对齐 Api 类方法：补缺失、修不一致、删多余（删除前查调用方）                                 |
 
-两者都给时：实体决定实体接口与 formatter，Controller 决定方法集合。仅有 Controller 时不改实体接口（除非方法签名暴露出缺失字段）。
+实体类与建表 SQL 同时给时以实体类为准；再给 Controller 时：实体/SQL 决定实体接口与 formatter，Controller 决定方法集合。仅有 Controller 时不改实体接口（除非方法签名暴露出缺失字段）。
 
 ## 项目约定
 
@@ -29,11 +30,11 @@ description: 仅供手动调用，请勿自动触发
 
 其他 `@gy` 仓库（多应用形态 `<app>-service` + `<app>-web`，或单服务层形态）的包结构、命名转换与目标包推断，见 [references/entity-rules.md](references/entity-rules.md) 的"仓库与包结构"。
 
-## 实体模式工作流
+## 实体 / SQL 模式工作流
 
 ```
 任务进度：
-- [ ] 1. 解析实体
+- [ ] 1. 解析实体 / SQL
 - [ ] 2. 定位/新建 API 文件
 - [ ] 3. 差异比对
 - [ ] 4. 写入代码
@@ -41,9 +42,9 @@ description: 仅供手动调用，请勿自动触发
 - [ ] 6. 汇报
 ```
 
-### 1. 解析实体
+### 1. 解析实体 / SQL
 
-读取 `.java` 文件（用户粘贴则直接解析），按 [references/entity-rules.md](references/entity-rules.md) 提取：类名/表名/中文名、类自身声明的字段（忽略基类字段）、字段类型与注释、字典/外键/文件字段特征、工作流特征（`extends SysFlowForm` 或含 `flowStatus` 字段）。
+读取 `.java` / `.sql` 文件（用户粘贴则直接解析），按 [references/entity-rules.md](references/entity-rules.md) 提取：类名（SQL 输入为表名转大驼峰）/表名/中文名、类自身声明的字段（忽略基类字段；SQL 输入按列名过滤基类列）、字段类型与注释、字典/外键/文件字段特征、工作流特征（`extends SysFlowForm` 或含 `flowStatus` 字段；SQL 输入看 `flow_status`/`flow_instance_id` 列）。
 
 ### 2. 定位/新建 API 文件
 
@@ -160,7 +161,7 @@ syncFlxCriminalRelation(isFirst: boolean): Promise<RestResponse<void>> {
 
 ## 汇报
 
-用表格列出：新增/修改的实体接口字段（实体模式）、新增方法、修正方法（说明改了什么）、删除方法、保留但后端已移除的方法、跳过的调试/`generate` 接口、待确认项（dicCode 占位、外键关联表、流程状态字典）。
+用表格列出：新增/修改的实体接口字段（实体/SQL 模式）、新增方法、修正方法（说明改了什么）、删除方法、保留但后端已移除的方法、跳过的调试/`generate` 接口、待确认项（dicCode 占位、外键关联表、流程状态字典；SQL 输入还包括按语义翻译的表/字段中文名）。
 
 ## 特殊情况
 

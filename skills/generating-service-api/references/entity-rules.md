@@ -1,6 +1,6 @@
 # 实体 → API 生成规则
 
-**Java 实体类**输入到服务层 API 文件（实体接口 + formatter + url + Api 类）的映射规则。生成时逐字段应用。页面生成规则不在本文档内（见 generating-crud-frontend skill）。
+**Java 实体类 / 建表 SQL** 输入到服务层 API 文件（实体接口 + formatter + url + Api 类）的映射规则。生成时逐字段应用。页面生成规则不在本文档内（见 generating-crud-frontend skill）。
 
 ## 目录
 
@@ -41,6 +41,8 @@
 
 ## 实体解析
 
+### Java 实体类输入
+
 - 类名即实体名（已是大驼峰）；`@TableName("xxx")` 提供表名（用于推断目标应用与 URL 路径）
 - 中文名来源：类上 `@Schema(title)` / `@ApiModel` / Javadoc 注释
 - **只解析类自身声明的字段**；继承自基类（BaseEntity/DefaultEntity 等）的字段一律忽略
@@ -49,13 +51,23 @@
 - 字段名已是驼峰，无需转换；若有 `@JsonProperty` / `@JSONField` 注解则以注解值为准
 - 后端联表/冗余带出的展示字段（不入库、只展示，如 `deptName`、`xxxValue`）也声明在实体接口中
 
+### 建表 SQL 输入
+
+- 表名取自 `CREATE TABLE xxx`；实体名 = 表名转大驼峰（`equ_material` → `EquMaterial`）
+- 中文名来源：表级 `COMMENT='...'`；无则按表名语义翻译，记入汇报待确认
+- 逐列解析：列名 snake_case → 驼峰；类型按 [SQL → TS 映射](#类型映射)；列中文名取 `COMMENT '...'`，无则按列名语义翻译
+- 基类列按[字段过滤](#字段过滤)的列名清单剔除（`id`、`create_time` 等）
+- `PRIMARY KEY`、`KEY`/`INDEX`、`CONSTRAINT` 行不产生字段
+- SQL 无法体现联表展示字段与 `@JsonProperty` 改名；如用户同时给出实体类，以实体类为准
+- 含 `flow_status` / `flow_instance_id` 列 → 按[工作流实体](#工作流实体sysflowform)处理
+
 ## 字段过滤
 
 以下字段由 `DefaultEntity` 基类提供，**不写入实体接口**：
 
 `id`、`create_time`、`update_time`、`create_user_id`、`create_real_name`、`update_user_id`、`update_real_name`、`is_delete`、`is_submit`、`is_sure`、`parent_id`
 
-只解析类自身声明的字段即可自然过滤。
+Java 实体输入只解析类自身声明的字段即可自然过滤；建表 SQL 输入按上述**列名**清单剔除对应列（驼峰形式如 `createTime` 同样剔除）。
 
 ## 类型映射
 
@@ -137,7 +149,7 @@ export const xxx_status_map = {
 
 ## 工作流实体（SysFlowForm）
 
-实体 `extends SysFlowForm`（或含 `flowStatus` / `flowInstanceId` 字段）→ 按 [assets/templates/api-flow-template.ts](../assets/templates/api-flow-template.ts) 生成，与普通 CRUD 的差异：
+实体 `extends SysFlowForm`（或含 `flowStatus` / `flowInstanceId` 字段；SQL 输入看 `flow_status` / `flow_instance_id` 列）→ 按 [assets/templates/api-flow-template.ts](../assets/templates/api-flow-template.ts) 生成，与普通 CRUD 的差异：
 
 - 实体接口继承 `SysFlowForm`（来自 `@gy/sys-service`），**不是** `DefaultEntity`；流程字段（flowStatus、flowInstanceId、runUserIds、runListTaskName 等）由基类提供，不声明；可加 `flowStatusValue: string` 展示字段
 - `formatterDics.flowStatus` 的 dicCode 为项目的流程状态字典编码（占位符 `{{flowStatusDicCode}}`，汇报时向用户确认；若项目服务层已有统一常量则直接复用，勿重复定义）
